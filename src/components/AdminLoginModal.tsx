@@ -87,7 +87,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-white hover:bg-stone-200 active:scale-[0.98] text-black font-bold rounded-xl text-sm transition-all shadow-lg"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg active:scale-[0.98]"
             >
               <ShieldCheck className="w-4 h-4" />
               <span>Daxil Ol</span>
@@ -95,9 +95,21 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           </div>
         </form>
 
-        <p className="text-[11px] text-stone-500 text-center mt-4">
-          İlkin şifrə: <span className="font-mono text-stone-300">fres123</span>
-        </p>
+        <div className="mt-5 p-3 rounded-xl bg-stone-900/90 border border-stone-800 text-center">
+          <p className="text-xs text-stone-400">
+            🔑 Cari Giriş Şifrəsi: <span className="font-mono font-bold text-amber-300 text-sm">{currentPassword}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setPassword(currentPassword);
+              setError(false);
+            }}
+            className="mt-2 text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2 transition-colors"
+          >
+            Şifrəni avtomatik xanaya yaz
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -17,14 +17,10 @@ import { ShareModal } from './components/ShareModal';
 import { Toast } from './components/Toast';
 import {
   SlidersHorizontal,
-  Share2,
-  Plus,
-  Eye,
   Settings2,
-  Smartphone,
-  Maximize2,
-  Monitor,
   Lock,
+  LogOut,
+  Plus,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'linkflow_nmexman_config_v3';
@@ -94,6 +90,28 @@ export default function App() {
     } else {
       setIsLoginModalOpen(true);
     }
+  };
+
+  // --- Secret Double Click / Double Tap on Footer to Open Admin Login ---
+  const lastFooterTapRef = React.useRef<number>(0);
+  const handleFooterDoubleClick = () => {
+    if (isAdmin) {
+      setIsAdminPanelOpen(true);
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  const handleFooterTouchEnd = () => {
+    const now = Date.now();
+    if (now - lastFooterTapRef.current < 450) {
+      if (isAdmin) {
+        setIsAdminPanelOpen(true);
+      } else {
+        setIsLoginModalOpen(true);
+      }
+    }
+    lastFooterTapRef.current = now;
   };
 
   const handleAdminLoginSuccess = () => {
@@ -312,14 +330,13 @@ export default function App() {
         }}
       />
 
-      {/* Floating Header Control Bar */}
-      <header className="sticky top-3 z-40 px-3 py-1 flex items-center justify-center w-full max-w-lg mx-auto">
-        <nav
-          aria-label="Əsas idarəetmə menyusu"
-          className="bg-black/85 border border-stone-800 backdrop-blur-md rounded-full px-3 py-1.5 shadow-[0_6px_25px_rgba(0,0,0,0.7)] flex items-center gap-2 text-xs text-white"
-        >
-          {/* Admin Indicator / Open Panel */}
-          {isAdmin ? (
+      {/* Top Floating Control Bar - Yalnız Admin daxil olduqda görünür */}
+      {isAdmin && (
+        <header className="sticky top-3 z-40 px-3 py-1 flex items-center justify-center w-full max-w-lg mx-auto animate-in fade-in slide-in-from-top-2 duration-200">
+          <nav
+            aria-label="Admin idarəetmə menyusu"
+            className="bg-black/85 border border-stone-800 backdrop-blur-md rounded-full px-3 py-1.5 shadow-[0_6px_25px_rgba(0,0,0,0.7)] flex items-center gap-2 text-xs text-white"
+          >
             <button
               type="button"
               onClick={() => setIsAdminPanelOpen(true)}
@@ -329,70 +346,19 @@ export default function App() {
               <Settings2 className="w-3.5 h-3.5" />
               <span>İdarəetmə Paneli (Admin)</span>
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsLoginModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium text-stone-300 hover:text-white hover:bg-white/10 transition-colors"
-              title="Loqoya 3 dəfə basaraq və ya buradan daxil olun"
-            >
-              <Lock className="w-3.5 h-3.5 text-stone-400" />
-              <span>Admin Girişi</span>
-            </button>
-          )}
 
-          {/* Share Profile Link & QR Code */}
-          <button
-            type="button"
-            onClick={() => setIsShareOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full font-semibold text-stone-300 hover:text-white hover:bg-white/10 transition-colors"
-            title="Profili paylaş / QR Kod"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Paylaş</span>
-          </button>
-
-          {/* Screen Width Simulation Selector for Viewers */}
-          <div className="hidden md:flex items-center pl-1 border-l border-white/20 gap-0.5">
             <button
               type="button"
-              onClick={() => setDevicePreview('fluid')}
-              className={`p-1.5 rounded-full transition-colors ${
-                devicePreview === 'fluid'
-                  ? 'bg-white/20 text-white'
-                  : 'text-stone-400 hover:text-stone-200'
-              }`}
-              title="Tam Ekran Responsiv Baxış"
+              onClick={handleAdminLogout}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full font-medium text-stone-400 hover:text-white hover:bg-white/10 transition-colors"
+              title="Admin rejimindən çıxış"
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Çıxış</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setDevicePreview('ref720')}
-              className={`p-1.5 rounded-full transition-colors ${
-                devicePreview === 'ref720'
-                  ? 'bg-white/20 text-white'
-                  : 'text-stone-400 hover:text-stone-200'
-              }`}
-              title="720px Referans Ekran Ölçüsü"
-            >
-              <Monitor className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setDevicePreview('mobile390')}
-              className={`p-1.5 rounded-full transition-colors ${
-                devicePreview === 'mobile390'
-                  ? 'bg-white/20 text-white'
-                  : 'text-stone-400 hover:text-stone-200'
-              }`}
-              title="390px Mobil Ekran Ölçüsü"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </nav>
-      </header>
+          </nav>
+        </header>
+      )}
 
       {/* Main Profile Layout Container - Responsive & 720px Reference Optimized */}
       <main
@@ -482,7 +448,12 @@ export default function App() {
 
           {/* Minimalist Profile Footer - həmişə ən aşağıda yerləşir */}
           <footer className="mt-auto pt-10 pb-4 border-t border-white/10 w-full text-center">
-            <p className="text-xs text-white/50 font-medium tracking-wide">
+            <p
+              onDoubleClick={handleFooterDoubleClick}
+              onTouchEnd={handleFooterTouchEnd}
+              className="text-xs text-white/50 font-medium tracking-wide select-none cursor-pointer hover:text-white/80 active:text-rose-300 transition-colors inline-block px-3 py-1.5 rounded-lg"
+              title="Admin girişi üçün iki dəfə klikləyin"
+            >
               {config.profile.name} · QisaGet Platforması
             </p>
           </footer>
