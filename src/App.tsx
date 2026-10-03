@@ -27,7 +27,7 @@ import {
   Lock,
 } from 'lucide-react';
 
-const STORAGE_KEY = 'linkflow_template_config_v2';
+const STORAGE_KEY = 'linkflow_nmexman_config_v3';
 
 export default function App() {
   const [config, setConfig] = useState<AppConfig>(() => {
@@ -36,24 +36,10 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.profile && parsed.theme && parsed.sections) {
-          const profile = { ...defaultAppConfig.profile, ...parsed.profile };
-          // İstifadəçinin istəyinə əsasən köhnə 'PULSUZLAR' dəyərlərini 'username' ilə əvəzləyirik
-          if (profile.monogramText === 'PULSUZLAR') {
-            profile.monogramText = 'username';
-          }
-          if (profile.displayName === 'PULSUZLAR') {
-            profile.displayName = 'username';
-          }
-          if (!profile.name || profile.name.toLowerCase().includes('pulsuzlar')) {
-            profile.name = '@username';
-          }
-          if (!profile.verifiedBadgeType) {
-            profile.verifiedBadgeType = 'blue';
-          }
           return {
             ...defaultAppConfig,
             ...parsed,
-            profile,
+            profile: { ...defaultAppConfig.profile, ...parsed.profile },
             theme: { ...defaultAppConfig.theme, ...parsed.theme },
           };
         }
