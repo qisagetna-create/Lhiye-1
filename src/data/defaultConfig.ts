@@ -96,7 +96,6 @@ export const THEME_PRESETS: {
 ];
 
 export const defaultAppConfig: AppConfig = {
-  adminPassword: 'fres123',
   profile: {
     logoMode: 'image',
     avatarUrl: '/avatar.jpg',
@@ -105,7 +104,7 @@ export const defaultAppConfig: AppConfig = {
     avatarZoom: 100,
     avatarPosX: 0,
     avatarPosY: 0,
-    monogramText: 'nmexman',
+    monogramText: 'NMEXMAN',
     name: '@nmexman',
     displayName: 'nmexman',
     description: 'Geoloq',

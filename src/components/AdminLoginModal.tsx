@@ -1,33 +1,63 @@
 import React, { useState } from 'react';
-import { Lock, Eye, EyeOff, ShieldCheck, X } from 'lucide-react';
+import { Lock, Eye, EyeOff, ShieldCheck, X, Loader2 } from 'lucide-react';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  currentPassword?: string;
 }
 
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  currentPassword = 'fres123',
 }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === currentPassword) {
-      setError(false);
-      setPassword('');
-      onSuccess();
-    } else {
-      setError(true);
+    if (!password.trim()) {
+      setErrorMessage('Şifrə yanlışdır');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Save bearer token in memory for session fallback
+        if (data.token) {
+          try {
+            sessionStorage.setItem('admin_auth_active', 'true');
+          } catch {}
+        }
+        setPassword('');
+        setErrorMessage(null);
+        onSuccess();
+      } else {
+        setErrorMessage(data.error || 'Şifrə yanlışdır');
+      }
+    } catch {
+      setErrorMessage('Serverlə əlaqə qurula bilmədi. Yenidən cəhd edin.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -37,7 +67,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-stone-400 hover:text-white rounded-full hover:bg-white/10"
+          disabled={isSubmitting}
+          className="absolute top-4 right-4 p-2 text-stone-400 hover:text-white rounded-full hover:bg-white/10 transition-colors disabled:opacity-50"
         >
           <X className="w-5 h-5" />
         </button>
@@ -61,25 +92,28 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
+                disabled={isSubmitting}
                 onChange={(e) => {
                   setPassword(e.target.value);
-                  setError(false);
+                  setErrorMessage(null);
                 }}
                 autoFocus
                 placeholder="Şifrəni daxil edin..."
-                className="w-full bg-[#101012] border border-stone-700 focus:border-white rounded-xl px-3.5 py-3 pr-11 text-sm text-white focus:outline-none transition-colors"
+                className="w-full bg-[#101012] border border-stone-700 focus:border-white rounded-xl px-3.5 py-3 pr-11 text-sm text-white focus:outline-none transition-colors disabled:opacity-50"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white p-1"
+                disabled={isSubmitting}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white p-1 transition-colors"
+                title={showPassword ? 'Şifrəni gizlə' : 'Şifrəni göstər'}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            {error && (
-              <p className="text-xs text-rose-400 mt-1.5 font-medium">
-                Daxil edilən şifrə yanlışdır. Yenidən cəhd edin.
+            {errorMessage && (
+              <p className="text-xs text-rose-400 mt-1.5 font-medium leading-relaxed animate-in fade-in duration-150">
+                {errorMessage}
               </p>
             )}
           </div>
@@ -87,29 +121,23 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg active:scale-[0.98]"
+              disabled={isSubmitting}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg active:scale-[0.98] disabled:opacity-60 cursor-pointer"
             >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Daxil Ol</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Yoxlanılır...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Daxil Ol</span>
+                </>
+              )}
             </button>
           </div>
         </form>
-
-        <div className="mt-5 p-3 rounded-xl bg-stone-900/90 border border-stone-800 text-center">
-          <p className="text-xs text-stone-400">
-            🔑 Cari Giriş Şifrəsi: <span className="font-mono font-bold text-amber-300 text-sm">{currentPassword}</span>
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setPassword(currentPassword);
-              setError(false);
-            }}
-            className="mt-2 text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2 transition-colors"
-          >
-            Şifrəni avtomatik xanaya yaz
-          </button>
-        </div>
       </div>
     </div>
   );

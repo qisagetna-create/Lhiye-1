@@ -31,7 +31,15 @@ import {
   Lock,
   Upload,
   Sparkles,
+  Loader2,
+  Cloud,
 } from 'lucide-react';
+import { compressAvatarImage } from '../utils/imageCompressor';
+import {
+  uploadAvatarToSupabase,
+  removeAvatarFromSupabase,
+  isSupabaseConfigured,
+} from '../lib/supabase';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -77,10 +85,18 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
   const isDraggingRef = useRef(false);
   const dragStartPos = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadProgressText, setUploadProgressText] = useState('');
 
-  // Tab 4: Reset & Password
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  // Tab 4: Secure Password Change
+  const [oldPasswordInput, setOldPasswordInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [showOldPass, setShowOldPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+  const [generatedHashToCopy, setGeneratedHashToCopy] = useState<string | null>(null);
 
   // Lock background scroll when open
   useEffect(() => {
@@ -255,18 +271,60 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     });
   };
 
-  // Image Upload handler
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image Upload handler with 512x512 compression & Supabase Cloud Storage
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        handleProfileChange('avatarUrl', result);
-        showToast('Foto uğurla yükləndi');
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      setIsUploadingImage(true);
+      setUploadProgressText('Şəkil 512x512 ölçüyə və 300KB-dan aza sıxılır...');
+
+      // 1. Compress image to max 512x512 and <= 300KB
+      const compressed = await compressAvatarImage(file, 512, 300 * 1024);
+
+      if (isSupabaseConfigured()) {
+        setUploadProgressText(`Supabase Storage-ə yüklənir (${compressed.sizeKb} KB)...`);
+        const res = await uploadAvatarToSupabase(compressed.file);
+
+        if (res.success && res.url) {
+          handleProfileChange('avatarUrl', res.url);
+          handleProfileChange('logoMode', 'image');
+          showToast(`Foto Supabase-ə yükləndi (${compressed.sizeKb} KB) - Bütün cihazlarda aktivdir`);
+        } else {
+          showToast(res.error || 'Supabase yükləmə xətası baş verdi');
+          // Temporary preview fallback
+          handleProfileChange('avatarUrl', compressed.previewUrl);
+        }
+      } else {
+        // Warning when Supabase credentials have not been configured in Vercel yet
+        handleProfileChange('avatarUrl', compressed.previewUrl);
+        handleProfileChange('logoMode', 'image');
+        showToast('Supabase açarları tapılmadı! Vercel-də VITE_SUPABASE_URL və VITE_SUPABASE_ANON_KEY təyin edin.');
+      }
+    } catch (err: any) {
+      console.error('Image upload failed:', err);
+      showToast('Şəkil xətası: ' + (err?.message || 'Xəta baş verdi'));
+    } finally {
+      setIsUploadingImage(false);
+      setUploadProgressText('');
+      e.target.value = '';
     }
+  };
+
+  // Remove avatar handler: clears from Supabase database and restores NMEXMAN fallback
+  const handleRemoveImage = async () => {
+    try {
+      if (isSupabaseConfigured()) {
+        await removeAvatarFromSupabase();
+      }
+    } catch (err) {
+      console.error('Failed to remove avatar from Supabase:', err);
+    }
+    handleProfileChange('avatarUrl', '');
+    handleProfileChange('logoMode', 'text');
+    handleProfileChange('monogramText', 'NMEXMAN');
+    showToast('Şəkil silindi, NMEXMAN fallback aktiv edildi');
   };
 
   // Dragging logic for fine tuning avatar position
@@ -319,34 +377,70 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   // --- Handlers: Password & Reset ---
   const handleResetToDefault = () => {
-    if (window.confirm('Bütün dəyişiklikləri silərək ilkin vəziyyətə qaytarmaq istədiyinizə əminsiniz?')) {
+    if (window.confirm('Bütün dəyişiklikləri silərək ilkin dizayn vəziyyətinə qaytarmaq istədiyinizə əminsiniz?')) {
       onUpdateConfig({
         ...defaultAppConfig,
-        adminPassword: config.adminPassword || 'fres123',
       });
       showToast('Səhifə ilkin vəziyyətinə qaytarıldı');
     }
   };
 
-  const handleUpdatePassword = () => {
-    if (!newPasswordInput.trim()) {
-      showToast('Yeni parol daxil edin');
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordChangeError(null);
+    setGeneratedHashToCopy(null);
+
+    if (!oldPasswordInput.trim()) {
+      setPasswordChangeError('Cari (köhnə) şifrəni daxil edin');
       return;
     }
-    onUpdateConfig({
-      ...config,
-      adminPassword: newPasswordInput.trim(),
-    });
-    setNewPasswordInput('');
-    showToast('Admin parolu yeniləndi');
-  };
 
-  const handleRestoreDefaultPassword = () => {
-    onUpdateConfig({
-      ...config,
-      adminPassword: 'fres123',
-    });
-    showToast('Parol ilkin koda (fres123) qaytarıldı');
+    if (newPasswordInput.length < 10) {
+      setPasswordChangeError('Yeni şifrə ən azı 10 simvol olmalıdır');
+      return;
+    }
+
+    const hasLetter = /[a-zA-Z]/.test(newPasswordInput);
+    const hasNumber = /[0-9]/.test(newPasswordInput);
+    if (!hasLetter || !hasNumber) {
+      setPasswordChangeError('Yeni şifrədə həm hərf, həm də rəqəm olmalıdır');
+      return;
+    }
+
+    if (newPasswordInput !== confirmPasswordInput) {
+      setPasswordChangeError('Yeni şifrə ilə təkrarı uyğun gəlmir');
+      return;
+    }
+
+    try {
+      setIsChangingPassword(true);
+      const res = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          oldPassword: oldPasswordInput,
+          newPassword: newPasswordInput,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Admin şifrəsi uğurla dəyişdirildi!');
+        setOldPasswordInput('');
+        setNewPasswordInput('');
+        setConfirmPasswordInput('');
+        if (data.newHash) {
+          setGeneratedHashToCopy(data.newHash);
+        }
+      } else {
+        setPasswordChangeError(data.error || 'Şifrə dəyişdirilə bilmədi');
+      }
+    } catch {
+      setPasswordChangeError('Serverlə əlaqə qurula bilmədi');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   return (
@@ -887,27 +981,70 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
                     {/* 3-cü sətir (Fayl Yükləmə Düyməsi) - Yalnız Şəkil rejimində */}
                     {config.profile.logoMode !== 'text' && (
-                      <div className="flex items-center gap-2">
-                        <label className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-[#24242c] hover:bg-[#2c2c36] text-stone-200 border border-stone-700 hover:border-stone-600 rounded-xl text-xs font-semibold cursor-pointer transition-colors">
-                          <Upload className="w-3.5 h-3.5 text-stone-300" />
-                          <span>Şəkil faylı yüklə</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleImageUpload}
-                            className="hidden"
-                          />
-                        </label>
-                        {config.profile.avatarUrl && (
-                          <button
-                            type="button"
-                            onClick={() => handleProfileChange('avatarUrl', '')}
-                            className="py-2 px-3 text-xs text-stone-400 hover:text-white border border-stone-700 hover:bg-stone-800 rounded-xl transition-colors font-medium"
-                            title="Şəkli sil"
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <label
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 ${
+                              isUploadingImage
+                                ? 'bg-stone-800 opacity-80 cursor-wait'
+                                : 'bg-[#24242c] hover:bg-[#2c2c36] cursor-pointer'
+                            } text-stone-200 border border-stone-700 hover:border-stone-600 rounded-xl text-xs font-semibold transition-colors`}
                           >
-                            Sil
-                          </button>
-                        )}
+                            {isUploadingImage ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 text-stone-300 animate-spin" />
+                                <span className="truncate">{uploadProgressText || 'Yüklənir...'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-3.5 h-3.5 text-stone-300" />
+                                <span>Şəkil faylı yüklə (512x512, Cloud)</span>
+                              </>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={isUploadingImage}
+                              onChange={handleImageUpload}
+                              className="hidden"
+                            />
+                          </label>
+                          {config.profile.avatarUrl && (
+                            <button
+                              type="button"
+                              disabled={isUploadingImage}
+                              onClick={handleRemoveImage}
+                              className="py-2 px-3 text-xs text-stone-400 hover:text-white border border-stone-700 hover:bg-stone-800 rounded-xl transition-colors font-medium disabled:opacity-40"
+                              title="Şəkli sil və NMEXMAN fallback mətni göstər"
+                            >
+                              Sil
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Supabase Bulud Vəziyyəti Göstəricisi */}
+                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/5 text-[10px]">
+                          <span className="text-stone-400 flex items-center gap-1.5">
+                            <Cloud className="w-3 h-3 text-stone-400" />
+                            <span>Supabase Bulud Baza & Storage:</span>
+                          </span>
+                          <span
+                            className={`font-semibold flex items-center gap-1 ${
+                              isSupabaseConfigured() ? 'text-emerald-400' : 'text-amber-400'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                isSupabaseConfigured()
+                                  ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
+                                  : 'bg-amber-400'
+                              }`}
+                            />
+                            {isSupabaseConfigured()
+                              ? 'Aktiv (Hamı eyni şəkli görür)'
+                              : 'Quraşdırılmayıb (Vercel .env əlavə edin)'}
+                          </span>
+                        </div>
                       </div>
                     )}
 
@@ -1307,71 +1444,139 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           {/* ============================================================== */}
           {activeTab === 'reset' && (
             <div className="space-y-4">
-              {/* ADMİN GİRİŞ PAROLUNU DƏYİŞDİR (Yuxarı keçirildi) */}
-              <div className="bg-[#1b1b20] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-stone-300 flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-amber-400" />
-                  <span>ADMİN GİRİŞ PAROLUNU DƏYİŞDİR</span>
-                </h3>
+              {/* ADMİN GİRİŞ ŞİFRƏSİNİ DƏYİŞDİR */}
+              <div className="bg-[#1b1b20] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-stone-200 flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-rose-400" />
+                    <span>ADMİN GİRİŞ ŞİFRƏSİNİ DƏYİŞDİR</span>
+                  </h3>
+                  <span className="text-[10px] text-stone-400 uppercase font-mono px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
+                    Bcrypt Hash
+                  </span>
+                </div>
 
-                {/* İndiki Parol Çərçivəsi */}
-                <div>
-                  <label className="block text-xs font-semibold text-stone-400 uppercase mb-1.5">
-                    İndiki Parol Çərçivəsi
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-[#111114] border border-stone-800 rounded-xl px-3.5 py-2.5 text-sm text-stone-300 font-mono flex items-center justify-between">
-                      <span>{showCurrentPassword ? config.adminPassword || 'fres123' : '••••••••'}</span>
+                <form onSubmit={handleChangePassword} className="space-y-3.5">
+                  {/* Köhnə Şifrə */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-300 uppercase mb-1">
+                      Cari (Köhnə) Şifrə
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showOldPass ? 'text' : 'password'}
+                        value={oldPasswordInput}
+                        onChange={(e) => {
+                          setOldPasswordInput(e.target.value);
+                          setPasswordChangeError(null);
+                        }}
+                        placeholder="Hazırkı şifrənizi daxil edin..."
+                        className="w-full bg-[#111114] border border-stone-700 focus:border-white rounded-xl px-3.5 py-2.5 pr-10 text-xs text-white focus:outline-none transition-colors"
+                      />
                       <button
                         type="button"
-                        onClick={() => setShowCurrentPassword((prev) => !prev)}
-                        className="text-stone-400 hover:text-white p-1"
-                        title={showCurrentPassword ? 'Parolu gizlə' : 'Parolu göstər'}
+                        onClick={() => setShowOldPass((p) => !p)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white p-1"
                       >
-                        {showCurrentPassword ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
+                        {showOldPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </div>
-                </div>
 
-                {/* Yeni Parol Təyin Et */}
-                <div>
-                  <label className="block text-xs font-semibold text-stone-400 uppercase mb-1.5">
-                    Yeni Parol Təyin Et
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      value={newPasswordInput}
-                      onChange={(e) => setNewPasswordInput(e.target.value)}
-                      placeholder="Yeni parolu yazın..."
-                      className="flex-1 bg-[#111114] border border-stone-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleUpdatePassword}
-                      className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs transition-colors shrink-0"
-                    >
-                      Parolu Yenilə
-                    </button>
+                  {/* Yeni Şifrə */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-300 uppercase mb-1">
+                      Yeni Şifrə (Minimum 10 simvol, hərf və rəqəm)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showNewPass ? 'text' : 'password'}
+                        value={newPasswordInput}
+                        onChange={(e) => {
+                          setNewPasswordInput(e.target.value);
+                          setPasswordChangeError(null);
+                        }}
+                        placeholder="Yeni güclü şifrə..."
+                        className="w-full bg-[#111114] border border-stone-700 focus:border-white rounded-xl px-3.5 py-2.5 pr-10 text-xs text-white focus:outline-none transition-colors font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPass((p) => !p)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white p-1"
+                      >
+                        {showNewPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {/* İlkin kod qaytar */}
-                <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-                  <span className="text-xs text-stone-400">İlkin kod: fres123</span>
+                  {/* Yeni Şifrənin Təkrarı */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-300 uppercase mb-1">
+                      Yeni Şifrənin Təkrarı
+                    </label>
+                    <input
+                      type="password"
+                      value={confirmPasswordInput}
+                      onChange={(e) => {
+                        setConfirmPasswordInput(e.target.value);
+                        setPasswordChangeError(null);
+                      }}
+                      placeholder="Yeni şifrəni təkrar daxil edin..."
+                      className="w-full bg-[#111114] border border-stone-700 focus:border-white rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-colors font-mono"
+                    />
+                  </div>
+
+                  {/* Təhlükəsizlik Tələbləri İndikatoru */}
+                  <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-1 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-stone-300">
+                      <span className={`w-1.5 h-1.5 rounded-full ${newPasswordInput.length >= 10 ? 'bg-emerald-400' : 'bg-stone-600'}`} />
+                      <span>Minimum 10 simvol ({newPasswordInput.length}/10)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-stone-300">
+                      <span className={`w-1.5 h-1.5 rounded-full ${/[a-zA-Z]/.test(newPasswordInput) && /[0-9]/.test(newPasswordInput) ? 'bg-emerald-400' : 'bg-stone-600'}`} />
+                      <span>Həm hərf, həm də ən azı 1 rəqəm daxil edilməlidir</span>
+                    </div>
+                  </div>
+
+                  {passwordChangeError && (
+                    <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+                      {passwordChangeError}
+                    </div>
+                  )}
+
+                  {generatedHashToCopy && (
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs space-y-2">
+                      <p className="font-bold flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-emerald-400" />
+                        <span>Şifrə uğurla dəyişdirildi!</span>
+                      </p>
+                      <p className="text-[11px] text-stone-300">
+                        Vercel-də <code className="text-amber-300 font-mono">ADMIN_PASSWORD_HASH</code> dəyişənini yeniləmək üçün yeni hash:
+                      </p>
+                      <div className="p-2 bg-black/60 rounded-lg border border-white/10 font-mono text-[10px] break-all select-all text-stone-200">
+                        {generatedHashToCopy}
+                      </div>
+                    </div>
+                  )}
+
                   <button
-                    type="button"
-                    onClick={handleRestoreDefaultPassword}
-                    className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-4"
+                    type="submit"
+                    disabled={isChangingPassword}
+                    className="w-full py-2.5 px-4 bg-gradient-to-r from-rose-700 to-rose-600 hover:from-rose-600 hover:to-rose-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg active:scale-[0.99] disabled:opacity-50 cursor-pointer"
                   >
-                    İlkin koda qaytar
+                    {isChangingPassword ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Yoxlanılır və yenilənir...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Şifrəni Yenilə</span>
+                      </>
+                    )}
                   </button>
-                </div>
+                </form>
               </div>
 
               {/* İlkin Vəziyyətə Qaytar (Aşağıya salındı və ölçüsü kompaktlaşdırıldı) */}

@@ -94,5 +94,4 @@ export interface AppConfig {
   profile: ProfileData;
   theme: ThemeConfig;
   sections: SectionItem[];
-  adminPassword?: string;
 }

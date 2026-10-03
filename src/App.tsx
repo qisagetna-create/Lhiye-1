@@ -16,12 +16,11 @@ import { QuickUrlModal } from './components/QuickUrlModal';
 import { ShareModal } from './components/ShareModal';
 import { Toast } from './components/Toast';
 import {
-  SlidersHorizontal,
   Settings2,
-  Lock,
   LogOut,
   Plus,
 } from 'lucide-react';
+import { fetchAvatarUrlFromSupabase, isSupabaseConfigured } from './lib/supabase';
 
 const STORAGE_KEY = 'linkflow_nmexman_config_v3';
 
@@ -32,10 +31,19 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.profile && parsed.theme && parsed.sections) {
+          // Filter out any device-specific base64 strings from local storage
+          const cleanAvatarUrl = parsed.profile.avatarUrl?.startsWith('data:')
+            ? ''
+            : parsed.profile.avatarUrl;
+
           return {
             ...defaultAppConfig,
             ...parsed,
-            profile: { ...defaultAppConfig.profile, ...parsed.profile },
+            profile: {
+              ...defaultAppConfig.profile,
+              ...parsed.profile,
+              avatarUrl: cleanAvatarUrl !== undefined ? cleanAvatarUrl : defaultAppConfig.profile.avatarUrl,
+            },
             theme: { ...defaultAppConfig.theme, ...parsed.theme },
           };
         }
@@ -66,10 +74,78 @@ export default function App() {
   // Desktop viewport preview mode
   const [devicePreview, setDevicePreview] = useState<'fluid' | 'ref720' | 'mobile390'>('fluid');
 
-  // Auto-save to localStorage whenever config changes
+  // Sync avatar directly from Supabase database on every page load
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function syncAvatarWithSupabase() {
+      if (!isSupabaseConfigured()) return;
+      try {
+        const dbAvatarUrl = await fetchAvatarUrlFromSupabase();
+        if (isCancelled) return;
+
+        if (dbAvatarUrl && dbAvatarUrl.trim()) {
+          setConfig((prev) => ({
+            ...prev,
+            profile: {
+              ...prev.profile,
+              avatarUrl: dbAvatarUrl,
+              logoMode: 'image',
+            },
+          }));
+        } else if (dbAvatarUrl === null) {
+          // If explicitly null or empty in Supabase, fallback to NMEXMAN text logo
+          setConfig((prev) => ({
+            ...prev,
+            profile: {
+              ...prev.profile,
+              avatarUrl: '',
+              logoMode: 'text',
+              monogramText: prev.profile.monogramText || 'NMEXMAN',
+            },
+          }));
+        }
+      } catch (e) {
+        console.error('Failed to sync avatar with Supabase:', e);
+      }
+    }
+
+    syncAvatarWithSupabase();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  // Check active server session on page load
+  useEffect(() => {
+    async function checkServerSession() {
+      try {
+        const res = await fetch('/api/session', { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            setIsAdmin(true);
+          }
+        }
+      } catch {
+        // Silent failure if offline or error
+      }
+    }
+    checkServerSession();
+  }, []);
+
+  // Auto-save to localStorage whenever config changes (never saving local base64)
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      const configToSave = {
+        ...config,
+        profile: {
+          ...config.profile,
+          avatarUrl: config.profile.avatarUrl?.startsWith('data:') ? '' : config.profile.avatarUrl,
+        },
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(configToSave));
     } catch (e) {
       console.error('Error saving configuration to localStorage', e);
     }
@@ -121,7 +197,13 @@ export default function App() {
     showToast('Admin girişi uğurludur');
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+      try {
+        sessionStorage.removeItem('admin_auth_active');
+      } catch {}
+    } catch {}
     setIsAdmin(false);
     setIsAdminPanelOpen(false);
     showToast('Admin sessiyasından çıxış edildi');
@@ -432,19 +514,7 @@ export default function App() {
             ))}
           </div>
 
-          {/* Admin Fast Action: Add Section Button */}
-          {isAdmin && (
-            <div className="w-full pt-10 pb-4 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setIsAdminPanelOpen(true)}
-                className="px-6 py-3 bg-[#18181c] hover:bg-[#232328] border-2 border-stone-700 hover:border-stone-500 text-white font-bold text-sm rounded-2xl transition-all shadow-lg flex items-center gap-2"
-              >
-                <SlidersHorizontal className="w-4 h-4 text-white" />
-                <span>İdarəetmə Panelini Aç</span>
-              </button>
-            </div>
-          )}
+
 
           {/* Minimalist Profile Footer - həmişə ən aşağıda yerləşir */}
           <footer className="mt-auto pt-10 pb-4 border-t border-white/10 w-full text-center">
@@ -477,7 +547,6 @@ export default function App() {
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         onSuccess={handleAdminLoginSuccess}
-        currentPassword={config.adminPassword || 'fres123'}
       />
 
       {/* Edit Link Modal (Triggered from card three-dot menu) */}

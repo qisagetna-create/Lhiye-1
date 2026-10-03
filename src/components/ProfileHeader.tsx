@@ -45,6 +45,12 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   const isSquare = profile.avatarShape === 'rounded';
   const shapeClass = isSquare ? 'rounded-3xl' : 'rounded-full';
 
+  const [imgError, setImgError] = React.useState(false);
+
+  React.useEffect(() => {
+    setImgError(false);
+  }, [profile.avatarUrl]);
+
   return (
     <div className="flex flex-col items-center justify-center text-center pt-8 sm:pt-12 md:pt-14 pb-5 px-4 w-full">
       {/* Profile Avatar / Photo / Logo */}
@@ -61,10 +67,11 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             className={`w-full h-full ${shapeClass} overflow-hidden flex items-center justify-center border border-stone-800 relative bg-black`}
             style={{ backgroundColor: profile.avatarBg || '#000000' }}
           >
-            {profile.logoMode !== 'text' && profile.avatarUrl ? (
+            {profile.logoMode !== 'text' && profile.avatarUrl && !imgError ? (
               <img
                 src={profile.avatarUrl}
                 alt={profile.name}
+                onError={() => setImgError(true)}
                 className="max-w-full max-h-full w-full h-full select-none pointer-events-none transition-all duration-150"
                 style={{
                   objectFit: 'contain',
@@ -73,7 +80,7 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               />
             ) : (
               /* Qızıl Orta Balanslı və Adaptiv Yazılı Loqo */
-              <AutoFitMonogram text={profile.monogramText || 'username'} />
+              <AutoFitMonogram text={profile.monogramText || 'NMEXMAN'} />
             )}
 
             {/* Admin Indicator hint on hover */}
