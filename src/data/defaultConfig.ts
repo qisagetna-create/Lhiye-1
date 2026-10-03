@@ -111,6 +111,7 @@ export const defaultAppConfig: AppConfig = {
     verified: true,
     verifiedBadgeType: 'blue',
     avatarBg: '#000000',
+    footerText: 'nmexman · QisaGet Platforması',
   },
   theme: {
     presetName: 'Referans Şərab',
@@ -144,8 +145,8 @@ export const defaultAppConfig: AppConfig = {
       links: [
         {
           id: 'link-drived',
-          title: 'DRIVED – Avtomobil Tshirti',
-          subtitle: 'Tshirt',
+          title: 'SÜRÜLÜB – Avtomobil Tshirti',
+          subtitle: 'Futbolka',
           url: 'https://drived-store.com',
           icon: 'globe',
           visible: true,

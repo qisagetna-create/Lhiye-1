@@ -56,6 +56,7 @@ export interface ProfileData {
   verified: boolean;
   verifiedBadgeType?: VerifiedBadgeType; // 'blue' | 'gold' | 'white'
   avatarBg?: string;
+  footerText?: string;
 }
 
 export type ThemePresetKey =

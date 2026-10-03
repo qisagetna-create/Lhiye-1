@@ -1,0 +1,11 @@
+import { handleGetConfig, handleSaveConfig } from '../src/server/supabaseServer.js';
+
+export default async function handler(req: any, res: any) {
+  if (req.method === 'GET') {
+    return handleGetConfig(req, res);
+  }
+  if (req.method === 'POST') {
+    return handleSaveConfig(req, res);
+  }
+  return res.status(405).json({ error: 'Method not allowed' });
+}

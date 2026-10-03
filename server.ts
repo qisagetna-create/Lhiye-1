@@ -8,6 +8,10 @@ import {
   handleLogout,
   handleChangePassword,
 } from './src/server/authHandler.js';
+import {
+  handleGetConfig,
+  handleSaveConfig,
+} from './src/server/supabaseServer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +27,8 @@ app.post('/api/login', handleLogin);
 app.get('/api/session', handleSession);
 app.post('/api/logout', handleLogout);
 app.post('/api/change-password', handleChangePassword);
+app.get('/api/config', handleGetConfig);
+app.post('/api/config', handleSaveConfig);
 
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {

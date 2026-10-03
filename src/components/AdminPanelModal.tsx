@@ -33,6 +33,7 @@ import {
   Sparkles,
   Loader2,
   Cloud,
+  Save,
 } from 'lucide-react';
 import { compressAvatarImage } from '../utils/imageCompressor';
 import {
@@ -46,6 +47,8 @@ interface AdminPanelModalProps {
   onClose: () => void;
   config: AppConfig;
   onUpdateConfig: (newConfig: AppConfig) => void;
+  onSaveToDatabase?: (configToSave?: AppConfig) => Promise<{ success: boolean; message?: string; error?: string }>;
+  isSavingToDatabase?: boolean;
   onLogout: () => void;
   showToast: (msg: string) => void;
 }
@@ -57,6 +60,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onClose,
   config,
   onUpdateConfig,
+  onSaveToDatabase,
+  isSavingToDatabase = false,
   onLogout,
   showToast,
 }) => {
@@ -152,20 +157,25 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     onUpdateConfig({ ...config, sections: updated });
   };
 
-  const handleSaveSectionTitle = (sectionId: string) => {
+  const handleSaveSectionTitle = async (sectionId: string) => {
     if (!editingSectionTitle.trim()) return;
-    onUpdateConfig({
+    const updatedConfig = {
       ...config,
       sections: config.sections.map((s) =>
         s.id === sectionId ? { ...s, title: editingSectionTitle.trim() } : s
       ),
-    });
+    };
+    onUpdateConfig(updatedConfig);
     setEditingSectionId(null);
-    showToast('Bölmə adı yeniləndi');
+    if (onSaveToDatabase) {
+      await onSaveToDatabase(updatedConfig);
+    } else {
+      showToast('Bölmə adı yeniləndi');
+    }
   };
 
   // --- Handlers: Links in Section ---
-  const handleAddLinkToSection = (sectionId: string) => {
+  const handleAddLinkToSection = async (sectionId: string) => {
     if (!newLinkTitle.trim()) {
       showToast('Kartın adını qeyd edin');
       return;
@@ -179,21 +189,26 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       order: 999,
       clicks: 0,
     };
-    onUpdateConfig({
+    const updatedConfig = {
       ...config,
       sections: config.sections.map((s) =>
         s.id === sectionId ? { ...s, links: [...s.links, newLink] } : s
       ),
-    });
+    };
+    onUpdateConfig(updatedConfig);
     setAddingToSectionId(null);
     setNewLinkTitle('');
     setNewLinkUrl('');
     setNewLinkIcon('instagram');
-    showToast('Link əlavə edildi');
+    if (onSaveToDatabase) {
+      await onSaveToDatabase(updatedConfig);
+    } else {
+      showToast('Link əlavə edildi');
+    }
   };
 
   const handleToggleLinkVisibility = (sectionId: string, linkId: string) => {
-    onUpdateConfig({
+    const updatedConfig = {
       ...config,
       sections: config.sections.map((sec) =>
         sec.id === sectionId
@@ -205,11 +220,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             }
           : sec
       ),
-    });
+    };
+    onUpdateConfig(updatedConfig);
+    if (onSaveToDatabase) {
+      onSaveToDatabase(updatedConfig);
+    }
   };
 
   const handleDeleteLink = (sectionId: string, linkId: string) => {
-    onUpdateConfig({
+    const updatedConfig = {
       ...config,
       sections: config.sections.map((sec) =>
         sec.id === sectionId
@@ -219,7 +238,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             }
           : sec
       ),
-    });
+    };
+    onUpdateConfig(updatedConfig);
+    if (onSaveToDatabase) {
+      onSaveToDatabase(updatedConfig);
+    }
     showToast('Link silindi');
   };
 
@@ -234,18 +257,22 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     newLinks[index] = newLinks[newIndex];
     newLinks[newIndex] = temp;
 
-    onUpdateConfig({
+    const updatedConfig = {
       ...config,
       sections: config.sections.map((s) =>
         s.id === sectionId ? { ...s, links: newLinks } : s
       ),
-    });
+    };
+    onUpdateConfig(updatedConfig);
+    if (onSaveToDatabase) {
+      onSaveToDatabase(updatedConfig);
+    }
   };
 
-  const handleSaveEditedLink = () => {
+  const handleSaveEditedLink = async () => {
     if (!editingLinkData) return;
     const { sectionId, link } = editingLinkData;
-    onUpdateConfig({
+    const updatedConfig = {
       ...config,
       sections: config.sections.map((s) =>
         s.id === sectionId
@@ -255,9 +282,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             }
           : s
       ),
-    });
+    };
+    onUpdateConfig(updatedConfig);
     setEditingLinkData(null);
-    showToast('Link yeniləndi');
+    if (onSaveToDatabase) {
+      await onSaveToDatabase(updatedConfig);
+    } else {
+      showToast('Link yeniləndi');
+    }
   };
 
   // --- Handlers: Profile Updates ---
@@ -464,6 +496,36 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Yadda Saxla Button (Direct Save to Supabase) */}
+            <button
+              type="button"
+              disabled={isSavingToDatabase}
+              onClick={async () => {
+                if (onSaveToDatabase) {
+                  const res = await onSaveToDatabase(config);
+                  if (res?.success) {
+                    showToast('Saxlanıldı');
+                  } else {
+                    showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
+                  }
+                }
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              title="Dəyişiklikləri Supabase bazasında saxla"
+            >
+              {isSavingToDatabase ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saxlanılır...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Yadda saxla</span>
+                </>
+              )}
+            </button>
+
             {/* Çıxış Button */}
             <button
               type="button"
@@ -848,6 +910,37 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </div>
                 ))}
               </div>
+
+              {/* Tab 1 Save Button */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  disabled={isSavingToDatabase}
+                  onClick={async () => {
+                    if (onSaveToDatabase) {
+                      const res = await onSaveToDatabase(config);
+                      if (res?.success) {
+                        showToast('Saxlanıldı');
+                      } else {
+                        showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingToDatabase ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Saxlanılır...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Dəyişiklikləri Yadda Saxla</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -1191,6 +1284,51 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* FOOTER MƏTNİ */}
+              <div className="bg-[#1b1b20] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-2">
+                <label className="block text-xs font-semibold text-stone-300">
+                  Aşağı Səhifə (Footer) Mətni
+                </label>
+                <input
+                  type="text"
+                  value={config.profile.footerText || `${config.profile.name} · QisaGet Platforması`}
+                  onChange={(e) => handleProfileChange('footerText', e.target.value)}
+                  placeholder="Məs: nmexman · QisaGet Platforması"
+                  className="w-full bg-[#111114] border border-stone-700 focus:border-white rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Tab 2 Save Button */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  disabled={isSavingToDatabase}
+                  onClick={async () => {
+                    if (onSaveToDatabase) {
+                      const res = await onSaveToDatabase(config);
+                      if (res?.success) {
+                        showToast('Saxlanıldı');
+                      } else {
+                        showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingToDatabase ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Saxlanılır...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Profili Yadda Saxla</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -1435,6 +1573,37 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     Şəkil təyin edildikdə gradient arxa fonda qorunur və üzərinə zərif qaranlıq filtr tətbiq olunur.
                   </p>
                 </div>
+              </div>
+
+              {/* Tab 3 Save Button */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  disabled={isSavingToDatabase}
+                  onClick={async () => {
+                    if (onSaveToDatabase) {
+                      const res = await onSaveToDatabase(config);
+                      if (res?.success) {
+                        showToast('Saxlanıldı');
+                      } else {
+                        showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingToDatabase ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Saxlanılır...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Dizaynı Yadda Saxla</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           )}

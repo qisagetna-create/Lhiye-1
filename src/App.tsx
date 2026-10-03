@@ -20,39 +20,15 @@ import {
   LogOut,
   Plus,
 } from 'lucide-react';
-import { fetchAvatarUrlFromSupabase, isSupabaseConfigured } from './lib/supabase';
-
-const STORAGE_KEY = 'linkflow_nmexman_config_v3';
+import {
+  fetchAppConfigFromSupabase,
+  subscribeToDatabaseChanges,
+  saveConfigToDatabase,
+} from './lib/supabase';
 
 export default function App() {
-  const [config, setConfig] = useState<AppConfig>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.profile && parsed.theme && parsed.sections) {
-          // Filter out any device-specific base64 strings from local storage
-          const cleanAvatarUrl = parsed.profile.avatarUrl?.startsWith('data:')
-            ? ''
-            : parsed.profile.avatarUrl;
-
-          return {
-            ...defaultAppConfig,
-            ...parsed,
-            profile: {
-              ...defaultAppConfig.profile,
-              ...parsed.profile,
-              avatarUrl: cleanAvatarUrl !== undefined ? cleanAvatarUrl : defaultAppConfig.profile.avatarUrl,
-            },
-            theme: { ...defaultAppConfig.theme, ...parsed.theme },
-          };
-        }
-      }
-    } catch (e) {
-      console.error('Error reading configuration from localStorage', e);
-    }
-    return defaultAppConfig;
-  });
+  const [config, setConfig] = useState<AppConfig>(defaultAppConfig);
+  const [isSavingToDb, setIsSavingToDb] = useState(false);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
@@ -74,46 +50,32 @@ export default function App() {
   // Desktop viewport preview mode
   const [devicePreview, setDevicePreview] = useState<'fluid' | 'ref720' | 'mobile390'>('fluid');
 
-  // Sync avatar directly from Supabase database on every page load
+  // Load config from Supabase / API on mount and subscribe to Realtime updates
   useEffect(() => {
     let isCancelled = false;
 
-    async function syncAvatarWithSupabase() {
-      if (!isSupabaseConfigured()) return;
+    async function loadLatestConfig() {
       try {
-        const dbAvatarUrl = await fetchAvatarUrlFromSupabase();
-        if (isCancelled) return;
-
-        if (dbAvatarUrl && dbAvatarUrl.trim()) {
-          setConfig((prev) => ({
-            ...prev,
-            profile: {
-              ...prev.profile,
-              avatarUrl: dbAvatarUrl,
-              logoMode: 'image',
-            },
-          }));
-        } else if (dbAvatarUrl === null) {
-          // If explicitly null or empty in Supabase, fallback to NMEXMAN text logo
-          setConfig((prev) => ({
-            ...prev,
-            profile: {
-              ...prev.profile,
-              avatarUrl: '',
-              logoMode: 'text',
-              monogramText: prev.profile.monogramText || 'NMEXMAN',
-            },
-          }));
+        const fetched = await fetchAppConfigFromSupabase();
+        if (!isCancelled && fetched) {
+          setConfig(fetched);
         }
-      } catch (e) {
-        console.error('Failed to sync avatar with Supabase:', e);
+      } catch (err) {
+        console.error('Failed to load config from database:', err);
       }
     }
 
-    syncAvatarWithSupabase();
+    // 1. Initial fetch from database
+    loadLatestConfig();
+
+    // 2. Realtime listener for cross-device live synchronization
+    const unsubscribe = subscribeToDatabaseChanges(() => {
+      loadLatestConfig();
+    });
 
     return () => {
       isCancelled = true;
+      unsubscribe();
     };
   }, []);
 
@@ -135,28 +97,39 @@ export default function App() {
     checkServerSession();
   }, []);
 
-  // Auto-save to localStorage whenever config changes (never saving local base64)
-  useEffect(() => {
-    try {
-      const configToSave = {
-        ...config,
-        profile: {
-          ...config.profile,
-          avatarUrl: config.profile.avatarUrl?.startsWith('data:') ? '' : config.profile.avatarUrl,
-        },
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(configToSave));
-    } catch (e) {
-      console.error('Error saving configuration to localStorage', e);
-    }
-  }, [config]);
-
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 2400);
+    }, 2800);
   };
+
+  // Save changes to Supabase database via server-side protected API
+  const handleSaveToDatabase = async (
+    configToSave?: AppConfig,
+    silent: boolean = false
+  ): Promise<{ success: boolean; message?: string; error?: string }> => {
+    const targetConfig = configToSave || config;
+    try {
+      setIsSavingToDb(true);
+      const res = await saveConfigToDatabase(targetConfig);
+      if (res.success) {
+        if (!silent) {
+          showToast('Saxlanıldı');
+        }
+      } else {
+        showToast(res.error || 'Xəta: Bazaya saxlanıla bilmədi');
+      }
+      return res;
+    } catch (err: any) {
+      const msg = err?.message || 'Server xətası baş verdi';
+      showToast(`Xəta: ${msg}`);
+      return { success: false, error: msg };
+    } finally {
+      setIsSavingToDb(false);
+    }
+  };
+
 
   // --- Triple Click on Logo to Open Admin Login ---
   const handleLogoTripleClick = () => {
@@ -524,7 +497,7 @@ export default function App() {
               className="text-xs text-white/50 font-medium tracking-wide select-none cursor-pointer hover:text-white/80 active:text-rose-300 transition-colors inline-block px-3 py-1.5 rounded-lg"
               title="Admin girişi üçün iki dəfə klikləyin"
             >
-              {config.profile.name} · QisaGet Platforması
+              {config.profile.footerText || `${config.profile.name} · QisaGet Platforması`}
             </p>
           </footer>
         </div>
@@ -538,6 +511,8 @@ export default function App() {
         onUpdateConfig={(newConfig) => {
           setConfig(newConfig);
         }}
+        onSaveToDatabase={handleSaveToDatabase}
+        isSavingToDatabase={isSavingToDb}
         onLogout={handleAdminLogout}
         showToast={showToast}
       />
