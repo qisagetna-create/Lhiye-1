@@ -127,48 +127,108 @@ export async function fetchAppConfigFromSupabase(): Promise<AppConfig | null> {
 }
 
 /**
- * Realtime Subscription for live updates across open browser tabs/devices
+ * Realtime Multi-Layer Subscription for Instant Zero-Reload Sync
+ * 1. Supabase Realtime WebSocket ('postgres_changes' on profile & links)
+ * 2. Server-Sent Events (SSE /api/stream for zero-latency direct push)
+ * 3. Resilient 6-second Heartbeat Polling & Tab Visibility Listener
  */
-export function subscribeToDatabaseChanges(onUpdate: () => void): () => void {
-  if (!supabase) {
-    return () => {};
+export function subscribeToDatabaseChanges(
+  onUpdate: () => void,
+  onDirectConfig?: (config: AppConfig) => void
+): () => void {
+  let isCleanedUp = false;
+
+  // Layer 1: Supabase Realtime WebSocket Channel
+  let channel: any = null;
+  if (supabase) {
+    try {
+      channel = supabase
+        .channel('realtime_live_sync')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profile' },
+          () => {
+            if (!isCleanedUp) onUpdate();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles' },
+          () => {
+            if (!isCleanedUp) onUpdate();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'links' },
+          () => {
+            if (!isCleanedUp) onUpdate();
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Supabase Realtime live sync active');
+          }
+        });
+    } catch (err) {
+      console.warn('Could not initialize Supabase Realtime channel:', err);
+    }
   }
 
+  // Layer 2: Server-Sent Events (SSE /api/stream) for instant cross-tab & cross-device notification
+  let eventSource: EventSource | null = null;
   try {
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'profile' },
-        () => {
+    eventSource = new EventSource('/api/stream');
+    eventSource.onmessage = (event) => {
+      if (isCleanedUp) return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'config_updated') {
+          if (data.config && onDirectConfig) {
+            onDirectConfig(data.config);
+          }
           onUpdate();
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'profiles' },
-        () => {
-          onUpdate();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'links' },
-        () => {
-          onUpdate();
-        }
-      )
-      .subscribe();
+      } catch {}
+    };
+    eventSource.onerror = () => {
+      // Browser automatically attempts reconnect for SSE
+    };
+  } catch (err) {
+    console.warn('SSE stream unavailable:', err);
+  }
 
-    return () => {
+  // Layer 3: Resilient 6-second Heartbeat Polling as safety fallback for mobile sleep/flaky connection
+  const pollingInterval = setInterval(() => {
+    if (!isCleanedUp && document.visibilityState === 'visible') {
+      onUpdate();
+    }
+  }, 6000);
+
+  // Layer 4: Re-sync immediately whenever user switches back to this browser tab
+  const handleVisibilityChange = () => {
+    if (!isCleanedUp && document.visibilityState === 'visible') {
+      onUpdate();
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  // Cleanup all listeners when unmounted
+  return () => {
+    isCleanedUp = true;
+    if (channel && supabase) {
       try {
         supabase.removeChannel(channel);
       } catch {}
-    };
-  } catch (err) {
-    console.warn('Could not setup Supabase realtime subscription:', err);
-    return () => {};
-  }
+    }
+    if (eventSource) {
+      try {
+        eventSource.close();
+      } catch {}
+    }
+    clearInterval(pollingInterval);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
 }
 
 /**

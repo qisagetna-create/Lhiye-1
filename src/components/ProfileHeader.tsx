@@ -51,6 +51,15 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
     setImgError(false);
   }, [profile.avatarUrl]);
 
+  const getAvatarSrc = () => {
+    if (!profile.avatarUrl) return '';
+    if (profile.avatarUrl.startsWith('data:')) return profile.avatarUrl;
+    const v = profile.avatarVersion || profile.updatedAt || '';
+    if (!v) return profile.avatarUrl;
+    const sep = profile.avatarUrl.includes('?') ? '&' : '?';
+    return `${profile.avatarUrl}${sep}v=${encodeURIComponent(v)}`;
+  };
+
   return (
     <div className="flex flex-col items-center justify-center text-center pt-8 sm:pt-12 md:pt-14 pb-5 px-4 w-full">
       {/* Profile Avatar / Photo / Logo */}
@@ -69,7 +78,7 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           >
             {profile.logoMode !== 'text' && profile.avatarUrl && !imgError ? (
               <img
-                src={profile.avatarUrl}
+                src={getAvatarSrc()}
                 alt={profile.name}
                 onError={() => setImgError(true)}
                 className="max-w-full max-h-full w-full h-full select-none pointer-events-none transition-all duration-150"

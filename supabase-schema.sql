@@ -121,7 +121,8 @@ INSERT INTO public.links (
   order_index,
   is_active,
   clicks
-) VALUES (
+) VALUES 
+(
   'link-drived',
   'section-main',
   'SÜRÜLÜB – Avtomobil Tshirti',
@@ -131,6 +132,17 @@ INSERT INTO public.links (
   1,
   true,
   1
+),
+(
+  'link-vercel',
+  'section-main',
+  'Vercel',
+  'Lahiyeler',
+  'https://vercel.com',
+  'globe',
+  2,
+  true,
+  0
 )
 ON CONFLICT (id) DO UPDATE SET
   title = EXCLUDED.title,

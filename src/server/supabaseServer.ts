@@ -219,15 +219,58 @@ export async function saveServerConfig(newConfig: AppConfig): Promise<{ success:
       await serverSupabase.from('links').delete().neq('id', '___non_existent___');
     }
 
+    // Broadcast instant update to all connected clients across devices
+    broadcastConfigUpdate(newConfig);
+
     return {
       success: true,
-      message: 'Məlumatlar Supabase bazasında uğurla saxlanıldı!',
+      message: 'Saxlanıldı və canlı saytda yeniləndi',
     };
   } catch (err: any) {
     return {
       success: false,
       error: err?.message || 'Bilinməyən server xətası baş verdi',
     };
+  }
+}
+
+// Active Server-Sent Events (SSE) connections for zero-delay synchronization
+const sseClients = new Set<any>();
+
+export function handleSseStream(req: any, res: any) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+
+  res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now() })}\n\n`);
+  sseClients.add(res);
+
+  const heartbeatTimer = setInterval(() => {
+    try {
+      res.write(`: heartbeat\n\n`);
+    } catch {
+      clearInterval(heartbeatTimer);
+      sseClients.delete(res);
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeatTimer);
+    sseClients.delete(res);
+  });
+}
+
+export function broadcastConfigUpdate(config: AppConfig) {
+  const data = JSON.stringify({ type: 'config_updated', timestamp: Date.now(), config });
+  for (const client of sseClients) {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch {
+      sseClients.delete(client);
+    }
   }
 }
 
@@ -240,7 +283,7 @@ export async function handleGetConfig(_req: any, res: any) {
   res.setHeader('Expires', '0');
 
   const config = await getServerConfig();
-  return res.json({ success: true, config });
+  return res.json({ success: true, config, timestamp: Date.now() });
 }
 
 /**
@@ -273,3 +316,4 @@ export async function handleSaveConfig(req: any, res: any) {
 
   return res.json(result);
 }
+

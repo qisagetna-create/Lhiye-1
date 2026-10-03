@@ -68,10 +68,17 @@ export default function App() {
     // 1. Initial fetch from database
     loadLatestConfig();
 
-    // 2. Realtime listener for cross-device live synchronization
-    const unsubscribe = subscribeToDatabaseChanges(() => {
-      loadLatestConfig();
-    });
+    // 2. Realtime listener for cross-device live synchronization (WebSocket + SSE + Polling)
+    const unsubscribe = subscribeToDatabaseChanges(
+      () => {
+        loadLatestConfig();
+      },
+      (directConfig) => {
+        if (!isCancelled && directConfig) {
+          setConfig(directConfig);
+        }
+      }
+    );
 
     return () => {
       isCancelled = true;
@@ -115,7 +122,7 @@ export default function App() {
       const res = await saveConfigToDatabase(targetConfig);
       if (res.success) {
         if (!silent) {
-          showToast('Saxlanıldı');
+          showToast('Saxlanıldı və canlı saytda yeniləndi');
         }
       } else {
         showToast(res.error || 'Xəta: Bazaya saxlanıla bilmədi');

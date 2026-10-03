@@ -11,6 +11,7 @@ import {
 import {
   handleGetConfig,
   handleSaveConfig,
+  handleSseStream,
 } from './src/server/supabaseServer.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,6 +30,7 @@ app.post('/api/logout', handleLogout);
 app.post('/api/change-password', handleChangePassword);
 app.get('/api/config', handleGetConfig);
 app.post('/api/config', handleSaveConfig);
+app.get('/api/stream', handleSseStream);
 
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {

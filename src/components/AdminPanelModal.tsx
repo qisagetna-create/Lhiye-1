@@ -504,7 +504,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 if (onSaveToDatabase) {
                   const res = await onSaveToDatabase(config);
                   if (res?.success) {
-                    showToast('Saxlanıldı');
+                    showToast('Saxlanıldı və canlı saytda yeniləndi');
                   } else {
                     showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
                   }
@@ -920,7 +920,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     if (onSaveToDatabase) {
                       const res = await onSaveToDatabase(config);
                       if (res?.success) {
-                        showToast('Saxlanıldı');
+                        showToast('Saxlanıldı və canlı saytda yeniləndi');
                       } else {
                         showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
                       }
@@ -1308,7 +1308,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     if (onSaveToDatabase) {
                       const res = await onSaveToDatabase(config);
                       if (res?.success) {
-                        showToast('Saxlanıldı');
+                        showToast('Saxlanıldı və canlı saytda yeniləndi');
                       } else {
                         showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
                       }
@@ -1584,7 +1584,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     if (onSaveToDatabase) {
                       const res = await onSaveToDatabase(config);
                       if (res?.success) {
-                        showToast('Saxlanıldı');
+                        showToast('Saxlanıldı və canlı saytda yeniləndi');
                       } else {
                         showToast(res?.error || 'Xəta: Bazaya saxlanıla bilmədi');
                       }
